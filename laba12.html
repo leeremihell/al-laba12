@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<title>Пошук найкоротшого шляху (Дейкстра)</title>
+<style>
+  body { font-family: sans-serif; }
+  #graph { border: 1px solid #333; }
+  #panel { width: 260px; margin-left: 20px; }
+  .edge-selected { color: blue; font-weight: bold; }
+</style>
+</head>
+<body>
+<h2>Найкоротший шлях Дейкстри (9 → 4)</h2>
+
+<div style="display:flex; align-items:flex-start;">
+  <canvas id="graph" width="800" height="540"></canvas>
+
+  <div id="panel">
+    <button id="stepBtn">Крок</button>
+
+    
+
+    <pre id="distBox" style="display:none;"></pre>
+
+    <h3>Крок:</h3>
+<div id="stepInfo" style="min-height:24px; color:green;"></div>
+
+    <h3>Шлях 9→4: <span id="pathResult" style="color:red;"></span></h3>
+  </div>
+</div>
+
+<script>
+// XML граф
+const xmlText = `
+<graph_data>
+<graph id="1">
+<title>Graph</title>
+<points>
+    <point id="1" x="40" y="300" />
+    <point id="2" x="200" y="100" />
+    <point id="3" x="400" y="40" />
+    <point id="4" x="710" y="160" />
+    <point id="5" x="480" y="200" />
+    <point id="6" x="260" y="250" />
+    <point id="7" x="590" y="300" />
+    <point id="8" x="260" y="400" />
+    <point id="9" x="460" y="390" />
+</points>
+<lines>
+    <line id="1" from="1" to="2" weight="2" />
+    <line id="2" from="2" to="3" weight="14" />
+    <line id="3" from="3" to="4" weight="17" />
+    <line id="4" from="2" to="5" weight="45" />
+    <line id="5" from="4" to="5" weight="67" />
+    <line id="6" from="2" to="6" weight="4" />
+    <line id="7" from="5" to="6" weight="14" />
+    <line id="8" from="1" to="6" weight="34" />
+    <line id="9" from="1" to="8" weight="56" />
+    <line id="10" from="6" to="8" weight="31" />
+    <line id="11" from="5" to="3" weight="14" />
+    <line id="12" from="6" to="7" weight="3" />
+    <line id="13" from="5" to="7" weight="11" />
+    <line id="14" from="4" to="7" weight="19" />
+    <line id="15" from="7" to="9" weight="67" />
+    <line id="16" from="8" to="9" weight="36" />
+    <line id="17" from="6" to="9" weight="14" />
+</lines>
+</graph>
+</graph_data>`;
+
+// Чтение вершин
+const nodes = {};
+{
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  xml.querySelectorAll("point").forEach(p => {
+    const id = +p.getAttribute("id");
+    nodes[id] = { x: +p.getAttribute("x"), y: +p.getAttribute("y") };
+  });
+}
+
+// Чтение рёбер
+const edges = [];
+{
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  xml.querySelectorAll("line").forEach(l => {
+    edges.push([ +l.getAttribute("from"), +l.getAttribute("to"), +l.getAttribute("weight") ]);
+  });
+}
+
+// Автоматическое определение списка вершин
+const nodeIds = Object.keys(nodes).map(Number);
+
+const start = 9;
+const target = 4;
+
+let dist = {};
+let currentDist = {}; // текущие отображаемые дистанции
+for (let i of nodeIds) currentDist[i] = dist[i]; // текущие отображаемые дистанции
+let parent = {};
+let used = new Set();
+let steps = [];
+let selectedEdges = [];
+
+for (let i of nodeIds) {
+  dist[i] = Infinity;
+  parent[i] = null;
+}
+dist[start] = 0;
+
+// Генерация шагов алгоритма Дейкстры
+function buildSteps() {
+  const pq = new Set(nodeIds);
+
+  while (pq.size > 0) {
+    let u = null;
+    let best = Infinity;
+    pq.forEach(v => {
+      if (dist[v] < best) { best = dist[v]; u = v; }
+    });
+
+    if (u === null) break;
+    pq.delete(u);
+    used.add(u);
+
+    steps.push({ pick:u, dist:JSON.parse(JSON.stringify(dist)) });
+
+    edges.forEach(([a,b,w]) => {
+      let v = null;
+      if (a === u) v = b;
+      else if (b === u) v = a;
+      else return;
+
+      if (!used.has(v) && dist[u] + w < dist[v]) {
+        dist[v] = dist[u] + w;
+        parent[v] = u;
+        steps.push({ relax:[u,v,w], dist:JSON.parse(JSON.stringify(dist)) });
+      }
+    });
+
+    if (u === target) break;
+  }
+}
+
+buildSteps();
+let stepIndex = 0;
+
+// Рисование графа
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 1;
+  edges.forEach(([u,v,w]) => {
+    const a = nodes[u], b = nodes[v];
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.font="20px Arial";
+    ctx.fillStyle="black";
+    ctx.fillText(w,(a.x+b.x)/2,(a.y+b.y)/2);
+  });
+
+  ctx.strokeStyle = "blue";
+  ctx.lineWidth = 4;
+  selectedEdges.forEach(([u,v]) => {
+    const a = nodes[u], b = nodes[v];
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  });
+
+  nodeIds.forEach(i => {
+    const {x,y} = nodes[i];
+    ctx.fillStyle = (i===start)?"yellow":"white";
+    ctx.beginPath(); ctx.arc(x,y,19,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="black"; ctx.stroke();
+    ctx.font="20px Arial";
+    ctx.fillStyle="black";
+    ctx.fillText(i,x-10,y+7);
+	ctx.font = "16px Arial";
+	ctx.fillStyle = "red";
+	ctx.fillText(currentDist[i] === Infinity ? "∞" : currentDist[i], x - 10, y - 25);
+  });
+}
+
+
+draw();
+updateDistBox();
+
+function updateDistBox(cur=null) {
+  const box = document.getElementById("distBox");
+  const d = cur || dist;
+  let out="";
+  for (let i of nodeIds) out += `${i}: ${d[i]}\n`;
+  box.textContent = out;
+}
+
+function reconstructPath() {
+  let path = [];
+  let v = target;
+  while (v !== null) {
+    path.push(v);
+    v = parent[v];
+  }
+  path.reverse();
+  return path;
+}
+
+document.getElementById("stepBtn").onclick = () => {
+  if (stepIndex >= steps.length) return;
+
+  const s = steps[stepIndex++];
+
+  if (s.relax) {
+    const [u,v,w] = s.relax;
+    selectedEdges.push([u,v]);
+    /* updateList removed */
+  }
+
+  currentDist = s.dist;
+  // описание шага
+  if (s.pick) document.getElementById("stepInfo").textContent = `Вибрана вершина ${s.pick}`;
+  if (s.relax) document.getElementById("stepInfo").textContent = `Оновлюємо дистанцію від вершини ${s.relax[0]} до вершини ${s.relax[1]}`;
+
+  updateDistBox(s.dist);
+  draw();
+
+  if (stepIndex === steps.length) {
+    const path = reconstructPath();
+    document.getElementById("pathResult").textContent = path.join(" → ");
+  }
+};
+
+function updateList() {
+  const list = document.getElementById("edgeList");
+  list.innerHTML="";
+  selectedEdges.forEach(([u,v]) => {
+    const li=document.createElement("li");
+    li.className="edge-selected";
+    li.textContent = `${u} - ${v}`;
+    list.appendChild(li);
+  });
+}
+
+</script>
+
+</body>
+</html>
